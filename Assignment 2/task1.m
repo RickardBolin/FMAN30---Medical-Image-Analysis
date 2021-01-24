@@ -4,38 +4,45 @@
 % Execute command: "run vlfeat-0.9.21/toolbox/vl_setup" 
 
 %% Load images and scale them down by 50%
+% LOADS IMAGES IN A WEIRD ORDER (10, 11, 12, 1,2 ...)
+% The manual points for task 3 is collected in that weird order as well
 HE_imgs = dir('./Assignment-2-Data/Collection 1/HE/*.bmp');   
 p63AMACR_imgs = dir('./Assignment-2-Data/Collection 1/p63AMACR/*.bmp');   
 
 for i=1:length(HE_imgs)
-   HE_images{i} = imresize(imread(fullfile(HE_imgs(i).folder, HE_imgs(i).name)), 0.5);
-   p63AMACR_images{i} = imresize(imread(fullfile(p63AMACR_imgs(i).folder, p63AMACR_imgs(i).name)), 0.5);
+   HE_images{i} = rgb2gray(imresize(imread(fullfile(HE_imgs(i).folder, HE_imgs(i).name)), 0.5));
+   p63AMACR_images{i} = rgb2gray(imresize(imread(fullfile(p63AMACR_imgs(i).folder, p63AMACR_imgs(i).name)), 0.5));
 end
 
 %% Find best rotations and translations for all image pairs (from im1 to im2)
 for i = 1:length(HE_images)
-    im1 = rgb2gray(HE_images{i});
-    im2 = rgb2gray(p63AMACR_images{i});
+    im1 = HE_images{i};
+    im2 = p63AMACR_images{i};
     [Rs{i}, ts{i}, Ts{i}] = find_best_rigid_registration(im1, im2);
 end
 
 %% Save the rotation and magnitude of transition for each image
 for i = 1:length(Rs)
-    rotation_angles{i} = acosd(Rs{i}(1,1));
+    rotation_angles{i} = rad2deg(atan2(Rs{i}(1,2),Rs{i}(1,1)));
     translation_magnitudes{i} = norm(ts{i});
 end
 
 %% Plot the unaligned and aligned images
 for i = 1:length(Rs)
     figure
-    im1 = rgb2gray(HE_images{i});
-    im2 = rgb2gray(p63AMACR_images{i});
-    subplot(1,2,1)
+    im1 = HE_images{i};
+    im2 = p63AMACR_images{i};
+    subplot(1,2,1);
+
     imshowpair(im1, im2, 'blend')
+    title('Before transformation', 'FontSize', 16)
     tform = affine2d(Ts{i}');
     aligned = imwarp(im1, tform, 'OutputView', imref2d(size(im2)));
     subplot(1,2,2)
+    
     imshow(imfuse(im2, aligned,'blend'))
+    title('After transformation', 'FontSize', 16)
+    sgtitle(['Image pair ', num2str(i)], 'FontSize', 20)
 end
 
 %% Check performance (task 3)
@@ -47,25 +54,41 @@ ys = manual_points_p63AMACR_collection_1;
 
 
 for i = 1:length(xs)
+    figure
+    subplot(1,2,1)
+    imshow(HE_images{i})
+    hold on
+    scatter(xs{i}(1,:), xs{i}(2,:), 'r+')
+
+    subplot(1,2,2)
+    imshow(p63AMACR_images{i})
+    hold on
+    scatter(ys{i}(1,:), ys{i}(2,:), 'r+')
+    
     x = xs{i};
     y = ys{i};
     N = length(x);
-    [R, t] = rigid_registration(x,y);
-    figure
-    tform = projective2d([R, t; 0,0,1]');
-    aligned = imwarp(HE_images{i}, tform, 'OutputView', imref2d(size(p63AMACR_images{i})));
-    imshow(imfuse(p63AMACR_images{i}, aligned,'diff'))   
-    % Calculate eps_manual
-    Rx = R*x;
-    eps_manual = sqrt((1/(N-1))*sum(vecnorm(y - [Rx(1,:) + t(1); Rx(2,:)  + t(2)]).^2));
-
-    % Apply T_auto on x and calculate eps_auto
-    Rx = Rs{i}*x;
-    t = ts{i};
-    eps_auto = sqrt((1/(N-1))*sum(vecnorm(y - [Rx(1,:) + t(1); Rx(2,:)  + t(2)]).^2));
+    [R, t, s] = find_similarity_transform(x,y);
+    %[R, t] = rigid_registration(x,y);
     
+    % Calculate eps_manual
+    X = s*R*x + t;
+    scatter(X(1,:), X(2,:), 'bo')
+    
+    %
+    
+    eps_manual{i} = sqrt((1/(N-1))*sum(vecnorm(y - (s*R*x + t)).^2));
+    % Apply T_auto on x and calculate eps_auto
+
+    X = Rs{i}*x + ts{i};
+    scatter(X(1,:), X(2,:), 'go')
+    
+    %
+    
+    eps_auto{i} = sqrt((1/(N-1))*sum(vecnorm(y - (Rs{i}*x + ts{i})).^2));
+    legend('true', 'manual','auto')
     % Check if the transformation is okay or not
-    evaluation{i} = (eps_auto <= eps_manual + 10);
+    evaluation{i} = (eps_auto{i} <= eps_manual{i} + 10);
 end
 performance = sum(cell2mat(evaluation))/length(HE_imgs)
 
@@ -79,7 +102,7 @@ function [R, t, T] = find_best_rigid_registration(im1, im2)
     matches = vl_ubcmatch(HE_d, p63AMACR_d);
     x = HE_F(1:2 , matches(1, :));
     y = p63AMACR_F(1:2 , matches(2, :));
-    % Find the best euclidean transformation using RANSAC
+    % Find the best Euclidean transformation using RANSAC
     [R, t, T] = ransac(x, y, 3);
 end
 
@@ -99,21 +122,17 @@ function [best_R, best_t, T] = ransac(x, y, n)
     curr_best = 0;
     best_R = [1,0;0,1];
     best_t = [0;0];
-    inlier_dist = 5; % Max distance between y_i and the projection of x_i
-    for iter = 1:20000
+    inlier_dist = 10; % Max distance between y_i and the projection of x_i
+    for iter = 1:10000
         idxs = vl_colsubset(1:length(x), n);
-        xs = x(:, idxs);
-        ys = y(:, idxs);
-        [R, t] = rigid_registration(xs, ys);
+        [R, t] = rigid_registration(x(:, idxs), y(:, idxs));
 
-        Rx = R*x;
-        new_y = [Rx(1,:) + t(1); Rx(2,:)  + t(2)];
+        new_y = R*x + t;
         inlier_idxs = vecnorm(new_y - y) < inlier_dist;
         if sum(inlier_idxs, 'all') >= max(0.1*curr_best, n)
             % Model has potential, fit transformation to all inliers
             [R, t] = rigid_registration(x(:, inlier_idxs), y(:, inlier_idxs));
-            Rx = R*x;
-            new_y = [Rx(1,:) + t(1); Rx(2,:)  + t(2)];
+            new_y = R*x + t;
             nb_inliers = sum(vecnorm(new_y - y) < inlier_dist, 'all');
             if nb_inliers > curr_best
                 curr_best = nb_inliers;
@@ -123,4 +142,17 @@ function [best_R, best_t, T] = ransac(x, y, n)
         end
     end
     T = [best_R, best_t; 0, 0, 1];
+end
+
+%%
+function [R, t, s] = find_similarity_transform(x, y)
+    % Algorithm to find the Euclidean transformation from x to y
+    avg_x = mean(x,2);
+    avg_y = mean(y,2);
+    x_tilde = x - avg_x;
+    y_tilde = y - avg_y;
+    [U, ~, V] = svd(y_tilde*x_tilde');
+    R = U*diag([1 det(U*V')])*V';
+    s = sum(diag(y_tilde'*R*x_tilde))/sum(vecnorm(x_tilde).^2);
+    t = avg_y - s*R*avg_x;
 end

@@ -1,5 +1,5 @@
 %% 1. Load data
-load(fullfile('Assignment 1/MBA_ML_2020/databases','hep_proper_mask'));
+load(fullfile('Assignment 1/MBA_ML_2020/databases','hep_proper_mask.mat'));
 X1_masks = Y1;
 X2_masks = Y2;
 load(fullfile('Assignment 1/MBA_ML_2020/databases','hep_proper'));
@@ -119,9 +119,33 @@ layers = [
     fullyConnectedLayer(6)    % Fully connected is a affine map from 28^2 pixels to 10 numbers 
     softmaxLayer               % Convert to 'probabilities'
     classificationLayer];      % Specify output layer
+%%
+%% Pooling replaced with stride
+layers = [
+    imageInputLayer([64 64 3]) % Specify input sizes
+    convolution2dLayer(3,16, 'Stride', 2)
+    reluLayer  
+    batchNormalizationLayer
+    convolution2dLayer(3,16, 'Stride', 2)
+    reluLayer  
+    convolution2dLayer(3,32, 'Stride', 2)
+    reluLayer  
+    batchNormalizationLayer
+    convolution2dLayer(3,32, 'Stride', 2)
+    reluLayer  
+    fullyConnectedLayer(512) 
+    batchNormalizationLayer
+    reluLayer  
+    fullyConnectedLayer(256) 
+    batchNormalizationLayer
+    reluLayer 
+    fullyConnectedLayer(6)    % Fully connected is a affine map from 28^2 pixels to 10 numbers 
+    softmaxLayer               % Convert to 'probabilities'
+    classificationLayer];      % Specify output layer
+
 
 %%
-%analyzeNetwork(net)
+analyzeNetwork(net)
 
 %% 3. Train deep learning network
 %miniBatchSize = 32; 

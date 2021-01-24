@@ -18,7 +18,7 @@ for subShapeId = 1:size(conList, 1)
     plot(shape, char(col));
   else
     closedShape = [shape; shape(1)];
-    plot(closedShape, char(col));
+    plot(closedShape, char(col), 'LineWidth', 2);
   end
 end
 

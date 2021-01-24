@@ -22,6 +22,16 @@ for i = 1:12
 end
 HE_images = HE_images_new;
 TRF_images = TRF_images_new;
+%%
+figure
+subplot(1,2,1);
+imshow(TRF_images{1})
+title('TRF', 'FontSize', 16)
+
+subplot(1,2,2);
+imshow(HE_images{1})
+title('HE', 'FontSize', 16)
+sgtitle(['Example of image pair for task 2'],  'FontSize', 20)
 
 %% Find best rotation, translation and scale for all image pairs (from im1 to im2)
 
@@ -33,24 +43,30 @@ end
 
 %% Save the rotation and magnitude of transition for each image
 for i = 1:length(Rs)
-    rotation_angles{i} = acosd(Rs{i}(1,1));
+    rotation_angles{i} = rad2deg(atan2(Rs{i}(1,2),Rs{i}(1,1)));
     translation_magnitudes{i} = norm(ts{i});
     scales{i} = ss{i};
 end
 
 %% Plot the unaligned and aligned images
-for i = 3:length(Rs)
+for i = 1:5
+    figure
     im1 = TRF_images{i};
     im2 = HE_images{i};
-    figure
-    subplot(1,2,1)
+    subplot(1,3,1)
     imshow(im1)
-    subplot(1,2,2)
+    title('TRF', 'FontSize', 16)
+    subplot(1,3,2)
     imshow(im2)
+    title('HE', 'FontSize', 16)
+
     tform = projective2d(Ts{i}');
     aligned = imwarp(im1, tform, 'OutputView', imref2d(size(im2)));
-    figure
+    subplot(1,3,3)
     imshow(imfuse(im2, aligned,'diff'))
+    title('Result after transformation', 'FontSize', 16)
+
+    sgtitle(['Image pair ', num2str(i)], 'FontSize', 20)
 end
 
 %% Check performance (task 3)
@@ -67,15 +83,12 @@ for i = 1:length(xs)
     [R, t, s] = find_similarity_transform(x,y);
     
     % Calculate eps_manual
-    sRx = s*R*x;
-    eps_manual = sqrt((1/(N-1))*sum(vecnorm(y - [sRx(1,:) + t(1); sRx(2,:) + t(2)]).^2));
+    eps_manual{i} = sqrt((1/(N-1))*sum(vecnorm(y - (s*R*x + t)).^2));
 
     % Apply T_auto on x and calculate eps_auto
-    sRx = ss{i}*Rs{i}*x;
-    t = ts{i};
-    eps_auto = sqrt((1/(N-1))*sum(vecnorm(y - [sRx(1,:) + t(1); sRx(2,:) + t(2)]).^2));
+    eps_auto{i} = sqrt((1/(N-1))*sum(vecnorm(y - (ss{i}*Rs{i}*x + ts{i})).^2));
     
-    evaluation{i} = (eps_auto <= eps_manual + 10);
+    evaluation{i} = (eps_auto{i} <= eps_manual{i} + 10);
 end
 performance = sum(cell2mat(evaluation))/length(HE_imgs);
 
@@ -96,7 +109,7 @@ function [R, t, s, T] = find_best_similarity_transform(im1, im2)
 end
 
 function [R, t, s] = find_similarity_transform(x, y)
-    % Algorithm to find the Euclidean transformation from x to y
+    % Algorithm to find the Similarity transformation from x to y
     avg_x = mean(x,2);
     avg_y = mean(y,2);
     x_tilde = x - avg_x;
@@ -121,14 +134,12 @@ function [best_R, best_t, best_s, T] = ransac(x, y, n)
         ys = y(:, idxs);
         [R, t, s] = find_similarity_transform(xs, ys);
         
-        sRx = s*R*x;
-        new_y = [sRx(1,:) + t(1); sRx(2,:)  + t(2)];
+        new_y = s*R*x + t;
         inlier_idxs = vecnorm(new_y - y) < inlier_dist;
         if sum(inlier_idxs, 'all') > max(0.1*curr_best, n)
             % Model has potential, fit transformation to all inliers
             [R, t, s] = find_similarity_transform(x(:, inlier_idxs), y(:, inlier_idxs));
-            sRx = s*R*x;
-            new_y = [sRx(1,:) + t(1); sRx(2,:)  + t(2)];
+            new_y = s*R*x + t;
             nb_inliers = sum(vecnorm(new_y - y) < inlier_dist, 'all');
             if nb_inliers > curr_best && s > 0
                 curr_best = nb_inliers;
